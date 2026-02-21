@@ -1,0 +1,11 @@
+{
+  "name": "suggestion-worker",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "mimetext": "^3.0.24"
+  },
+  "devDependencies": {
+    "wrangler": "^3.0.0"
+  }
+}

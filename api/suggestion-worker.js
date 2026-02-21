@@ -1,43 +1,36 @@
 /**
  * VividCut Suggestion Worker
- * 
+ *
  * Receives anonymous suggestions from the iOS app and forwards them
- * to suggestions@vividcut.app via the MailChannels API.
- * 
- * DEPLOYMENT:
- * 1. Install Wrangler: npm install -g wrangler
- * 2. Authenticate: wrangler login
- * 3. Create worker: wrangler init suggestion-worker
- * 4. Copy this code into src/index.js
- * 5. Deploy: wrangler deploy
- * 
- * DNS SETUP (required for MailChannels):
- * Add a TXT record to your domain:
- *   Name: _mailchannels
- *   Content: v=mc1 cfid=YOUR_WORKER_SUBDOMAIN.workers.dev
- * 
- * Also add an SPF record if not already present:
- *   Name: @
- *   Content: v=spf1 include:relay.mailchannels.net -all
- * 
- * CUSTOM DOMAIN (optional):
- * Route this worker to api.vividcut.app/suggest via Cloudflare dashboard
- * Workers > Routes > Add Route: api.vividcut.app/suggest*
+ * to your email via Cloudflare Email Routing.
  */
 
-const MAX_TEXT_LENGTH = 500;
+import { EmailMessage } from "cloudflare:email";
+
+const MAX_TEXT_LENGTH = 1111;
+
+function buildRawEmail(from, to, subject, body) {
+    const msgId = `<${crypto.randomUUID()}@vividcut.app>`;
+    const lines = [
+        `From: VividCut App <${from}>`,
+        `To: <${to}>`,
+        `Subject: ${subject}`,
+        `Message-ID: ${msgId}`,
+        `MIME-Version: 1.0`,
+        `Content-Type: text/plain; charset=utf-8`,
+        `Date: ${new Date().toUTCString()}`,
+        ``,
+        body,
+    ];
+    return lines.join("\r\n");
+}
 
 export default {
     async fetch(request, env) {
-        // Handle CORS preflight
         if (request.method === "OPTIONS") {
-            return new Response(null, {
-                status: 204,
-                headers: corsHeaders(),
-            });
+            return new Response(null, { status: 204, headers: corsHeaders() });
         }
 
-        // Only accept POST
         if (request.method !== "POST") {
             return jsonResponse({ error: "Method not allowed" }, 405);
         }
@@ -46,7 +39,6 @@ export default {
             const body = await request.json();
             const text = (body.text || "").trim();
 
-            // Validate
             if (!text) {
                 return jsonResponse({ error: "Suggestion text is required" }, 400);
             }
@@ -57,42 +49,28 @@ export default {
                 );
             }
 
-            // Send email via MailChannels
-            const emailRequest = new Request("https://api.mailchannels.net/tx/v1/send", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    personalizations: [
-                        {
-                            to: [{ email: "suggestions@vividcut.app", name: "VividCut Suggestions" }],
-                        },
-                    ],
-                    from: {
-                        email: "noreply@vividcut.app",
-                        name: "VividCut App",
-                    },
-                    subject: "New App Suggestion",
-                    content: [
-                        {
-                            type: "text/plain",
-                            value: `New anonymous suggestion from VividCut:\n\n${text}\n\n---\nSent at: ${new Date().toISOString()}`,
-                        },
-                    ],
-                }),
-            });
-
-            const emailResponse = await fetch(emailRequest);
-
-            if (!emailResponse.ok) {
-                const errText = await emailResponse.text();
-                console.error("MailChannels error:", errText);
-                return jsonResponse({ error: "Failed to send suggestion" }, 502);
+            const destination = env.DESTINATION_EMAIL;
+            if (!destination) {
+                console.error("DESTINATION_EMAIL secret is not set");
+                return jsonResponse({ error: "Server misconfigured" }, 500);
             }
+
+            console.log("Sending to destination:", destination);
+
+            const rawEmail = buildRawEmail(
+                "noreply@vividcut.app",
+                destination,
+                "New App Suggestion",
+                `New anonymous suggestion from VividCut:\n\n${text}\n\n---\nSent at: ${new Date().toISOString()}`
+            );
+
+            const email = new EmailMessage("noreply@vividcut.app", destination, rawEmail);
+            await env.EMAIL.send(email);
 
             return jsonResponse({ success: true });
         } catch (err) {
-            console.error("Worker error:", err);
-            return jsonResponse({ error: "Invalid request" }, 400);
+            console.error("Worker error:", err.message, err.stack);
+            return jsonResponse({ error: "Failed to send suggestion: " + err.message }, 500);
         }
     },
 };
@@ -100,10 +78,7 @@ export default {
 function jsonResponse(data, status = 200) {
     return new Response(JSON.stringify(data), {
         status,
-        headers: {
-            "Content-Type": "application/json",
-            ...corsHeaders(),
-        },
+        headers: { "Content-Type": "application/json", ...corsHeaders() },
     });
 }
 

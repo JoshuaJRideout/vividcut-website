@@ -602,6 +602,11 @@ h6 {
     margin: 0 auto;
 }
 
+.pricing-grid-single {
+    grid-template-columns: 1fr;
+    max-width: 480px;
+}
+
 .pricing-card {
     background: var(--bg-card);
     border: 1px solid var(--border);
@@ -652,11 +657,18 @@ h6 {
 }
 
 .pricing-price {
-    margin-bottom: 32px;
+    margin-bottom: 8px;
     display: flex;
     align-items: baseline;
     justify-content: center;
     gap: 2px;
+}
+
+.pricing-annual {
+    font-size: 0.9rem;
+    color: var(--accent-cyan);
+    margin-bottom: 28px;
+    font-weight: 500;
 }
 
 .price-currency {
